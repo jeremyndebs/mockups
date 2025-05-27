@@ -1,0 +1,3 @@
+figure out owner lead businesses 
+
+have the script go through each result and edit the corosponding templates (it has to note what category of business each result is in) contact the leads individualy
