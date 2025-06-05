@@ -1,42 +1,71 @@
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import quote
-import re
+import os
+import csv
+import subprocess
+from deepseek_editor import edit_html_with_deepseek, delete_folder
+from main import search_businesses as scrape_businesses
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-}
+TEMPLATE_DIR = "C:/Users/DELL/Desktop/temps"
+REPO_DIR = os.getcwd()
+DEPLOY_DIR = os.path.join(REPO_DIR, "docs")
+CSV_LOG = os.path.join(REPO_DIR, "outreach_log.csv")
 
-MAX_PER_TYPE = 15
+scraped_leads = []
+for business_type in ["plumber", "pet groomer", "accountant", "photographer"]:
+    scraped_leads.extend(scrape_businesses(business_type)[:15])
 
-def search_google(business_type):
-    print(f"🔍 Scraping {business_type}s in Cape Town...")
-    query = quote(f"{business_type} Cape Town site:facebook.com OR site:yellowpages.co.za OR site:snupit.co.za")
-    url = f"https://www.google.com/search?q={query}&num=30"
+print(f"✅ {len(scraped_leads)} leads scraped for mockup")
 
-    response = requests.get(url, headers=HEADERS)
-    soup = BeautifulSoup(response.text, "html.parser")
+for lead in scraped_leads:
+    folder_slug = lead['name'].lower().replace(" ", "-")
+    folder_path = os.path.join(DEPLOY_DIR, folder_slug)
+    template_file = os.path.join(TEMPLATE_DIR, f"{lead['type']}.html")
 
-    results = []
-    for result in soup.select("div.g"):
-        if len(results) >= MAX_PER_TYPE:
-            break
+    if not os.path.exists(template_file):
+        print(f"❌ No template for type: {lead['type']}")
+        continue
 
-        text = result.get_text(" ", strip=True)
-        name_match = re.search(r"^(.*?) -", text)
-        phone_match = re.search(r"(\+27|0)[6-8][0-9]{8}", text)
+    with open(template_file, "r", encoding="utf-8") as f:
+        template_html = f.read()
 
-        name = name_match.group(1) if name_match else f"Unknown {business_type.title()}"
-        phone = phone_match.group(0) if phone_match else ""
+    template_html = template_html.replace("href=\"http", "#")
+    template_html = template_html.replace("href=\"https", "#")
+    template_html = template_html.replace("Download", "Made by Jeremy Hill")
 
-        if phone:
-            results.append({
-                "name": name,
-                "type": business_type,
-                "location": "Cape Town",
-                "phone": phone,
-                "services": business_type
-            })
+    info = f"""
+    Business Name: {lead['name']}
+    Services: {lead['services']}
+    Location: {lead['location']}
+    Contact: {lead['phone']}
+    Type: {lead['type']}
+    """
 
-    print(f"✅ Found {len(results)} {business_type}s")
-    return results
+    custom_html = edit_html_with_deepseek(info, template_html)
+    if not custom_html:
+        print(f"❌ Skipped {lead['name']} due to DeepSeek fail")
+        continue
+
+    delete_folder(folder_path)
+    os.makedirs(folder_path, exist_ok=True)
+
+    with open(os.path.join(folder_path, "index.html"), "w", encoding="utf-8") as f:
+        f.write(custom_html)
+
+    print(f"✅ Mockup for {lead['name']} ready.")
+
+# Git auto commit
+subprocess.run(["git", "add", "."])
+subprocess.run(["git", "commit", "-m", "Deploy working mockups"])
+subprocess.run(["git", "push", "origin", "master"])
+
+# Log WhatsApp message
+with open(CSV_LOG, "a", newline="", encoding="utf-8") as file:
+    writer = csv.writer(file)
+    if os.stat(CSV_LOG).st_size == 0:
+        writer.writerow(["Business Name", "Phone", "Mockup URL", "WhatsApp Message"])
+
+    for lead in scraped_leads:
+        slug = lead['name'].lower().replace(" ", "-")
+        url = f"https://jeremyndebs.github.io/mockups/{slug}/"
+        message = f"Hi {lead['name']}, I made you a sample site: {url} — I can hand it over for R2,500 if you're interested. Let me know. 😊"
+        print(f"📲 Logging: {lead['name']} | {lead['phone']} | {url}")
+        writer.writerow([lead['name'], lead['phone'], url, message])
