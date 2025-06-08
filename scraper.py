@@ -1,8 +1,8 @@
 import os
 import csv
 import subprocess
+import pandas as pd
 from deepseek_editor import edit_html_with_deepseek, delete_folder
-from main import search_businesses as scrape_businesses
 
 TEMPLATE_DIR = "C:/Users/DELL/Desktop/temps"
 REPO_DIR = os.getcwd()
@@ -10,10 +10,35 @@ DEPLOY_DIR = os.path.join(REPO_DIR, "docs")
 CSV_LOG = os.path.join(REPO_DIR, "outreach_log.csv")
 
 scraped_leads = []
-for business_type in ["plumber", "pet groomer", "accountant", "photographer"]:
-    scraped_leads.extend(scrape_businesses(business_type)[:15])
+contacted_numbers = set()
 
-print(f"✅ {len(scraped_leads)} leads scraped for mockup")
+# Load already contacted numbers to skip duplicates
+if os.path.exists(CSV_LOG):
+    with open(CSV_LOG, newline='', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            contacted_numbers.add(row["Phone"])
+
+# Load leads from businesses_without_websites.csv
+if os.path.exists("businesses_without_websites.csv"):
+    df = pd.read_csv("businesses_without_websites.csv")
+    for _, row in df.iterrows():
+        phone = str(row.get("phone", "")).strip()
+        if pd.notna(phone) and phone not in contacted_numbers:
+            raw_type = str(row.get("type") or row.get("services") or "general").lower().strip().replace(" ", "-")
+            scraped_leads.append({
+                "name": row.get("name", "Unknown"),
+                "type": raw_type,
+                "location": row.get("location", "Cape Town"),
+                "phone": phone,
+                "services": row.get("services", raw_type)
+            })
+    print(f"✅ Loaded {len(scraped_leads)} new leads from CSV.")
+else:
+    print("❌ businesses_without_websites.csv not found.")
+
+# Prepare CSV to store only fresh contacts
+outreach_rows = []
 
 for lead in scraped_leads:
     folder_slug = lead['name'].lower().replace(" ", "-")
@@ -52,20 +77,21 @@ for lead in scraped_leads:
 
     print(f"✅ Mockup for {lead['name']} ready.")
 
+    slug = lead['name'].lower().replace(" ", "-")
+    url = f"https://jeremyndebs.github.io/mockups/{slug}/"
+    message = f"Hi {lead['name']}, I made you a sample site: {url} — I can hand it over for R2,500 if you're interested. Let me know. 😊"
+    outreach_rows.append([lead['name'], lead['phone'], url, message])
+
 # Git auto commit
 subprocess.run(["git", "add", "."])
 subprocess.run(["git", "commit", "-m", "Deploy working mockups"])
 subprocess.run(["git", "push", "origin", "master"])
 
-# Log WhatsApp message
+# Save fresh outreach rows only
 with open(CSV_LOG, "a", newline="", encoding="utf-8") as file:
     writer = csv.writer(file)
     if os.stat(CSV_LOG).st_size == 0:
         writer.writerow(["Business Name", "Phone", "Mockup URL", "WhatsApp Message"])
-
-    for lead in scraped_leads:
-        slug = lead['name'].lower().replace(" ", "-")
-        url = f"https://jeremyndebs.github.io/mockups/{slug}/"
-        message = f"Hi {lead['name']}, I made you a sample site: {url} — I can hand it over for R2,500 if you're interested. Let me know. 😊"
-        print(f"📲 Logging: {lead['name']} | {lead['phone']} | {url}")
-        writer.writerow([lead['name'], lead['phone'], url, message])
+    for row in outreach_rows:
+        print(f"📲 Logging: {row[0]} | {row[1]} | {row[2]}")
+        writer.writerow(row)
