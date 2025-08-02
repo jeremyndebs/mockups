@@ -14,7 +14,7 @@ DEPLOY_DIR = os.path.join(os.getcwd(), "docs")
 LOG_CSV = os.path.join(os.getcwd(), "outreach_log.csv")
 LEADS_CSV = os.path.join(os.getcwd(), "businesses_without_websites.csv")
 
-DEFAULT_TYPES = ["plumber", "pet groomer", "accountant", "photographer"]
+DEFAULT_TYPES = ["Solar Panel Installers", "Borehole Drillers", "Videographers", "Flooring Installers",]
 DEFAULT_MESSAGE = (
     "Hey,\n\n"
     "I'm a freelance web developer and I noticed your business doesn’t have a website — so I built a custom one for you:\n\n"
@@ -185,11 +185,11 @@ if __name__ == "__main__":
     parser.add_argument("--max", type=int, default=500, help="Max results per type")
     args = parser.parse_args()
 
-    # 1. Scrape leads and get real phone numbers
-    # leads = search_google(args.types, max_results=args.max)
-    unique_leads = read_unique_leads(LEADS_CSV)
+    # 1. Scrape leads and get real phone numbers from Google
+    leads = search_google(args.types, max_results=args.max)
 
     # 2. Remove duplicates and filter out already-contacted
+    unique_leads = read_unique_leads(LEADS_CSV)
     contacted = get_contacted_phones(LOG_CSV)
     fresh_leads = [lead for lead in unique_leads if lead["phone"] and lead["phone"] not in contacted]
     print(f"🚀 Found {len(fresh_leads)} new leads to process.")
